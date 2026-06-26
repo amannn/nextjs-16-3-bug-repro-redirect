@@ -1,20 +1,19 @@
 import {NextRequest, NextResponse} from 'next/server';
 
-// Mirrors what an i18n middleware does for a default locale with an
-// "as-needed" prefix (default `en`, secondary `de`):
+// A plain proxy (formerly "middleware"):
+//   /a -> redirect to /
+//   /  -> rewrite to /a   (so `/` is served by the dynamic `/a` page)
 //
-//   /     -> rewrite to /en   (default locale served without a prefix)
-//   /en   -> redirect to /    (strip the redundant default-locale prefix)
-//   /de   -> served as-is
+// i.e. the redirect target (`/`) is rewritten to a dynamic, param-reading page.
 export default function proxy(request: NextRequest) {
   const {pathname} = request.nextUrl;
 
-  if (pathname === '/en') {
+  if (pathname === '/a') {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
   if (pathname === '/') {
-    return NextResponse.rewrite(new URL('/en', request.url));
+    return NextResponse.rewrite(new URL('/a', request.url));
   }
 
   return NextResponse.next();

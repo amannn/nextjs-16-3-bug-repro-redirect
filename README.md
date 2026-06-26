@@ -1,42 +1,52 @@
-# Next.js 16.3 preview: proxy redirect not applied to the URL on client-side navigation
+# Next.js: proxy redirect not applied to the URL on client-side navigation
 
-Minimal reproduction (no `next-intl`, no third-party deps) of a regression in
+Minimal reproduction (no dependencies beyond `next`/`react`) of a regression in
 `next@16.3.0-preview.5`.
+
+## Affected versions
+
+| Next.js | Result |
+| --- | --- |
+| `16.2.9` | works ✅ (URL becomes `/`) |
+| `16.3.0-preview.5` | broken ❌ (URL stays `/a`) |
 
 ## The bug
 
-A [proxy](./proxy.ts) (formerly "middleware") implements the common i18n
-pattern for a default locale with an "as-needed" prefix (default `en`,
-secondary `de`):
+A [proxy](./proxy.ts) (formerly "middleware") redirects `/a` to `/`, and `/` is
+rewritten to the dynamic `/a` page:
 
 ```ts
-//   /     -> rewrite to /en   (default locale served without a prefix)
-//   /en   -> redirect to /    (strip the redundant default-locale prefix)
-//   /de   -> served as-is
+//   /a -> redirect to /
+//   /  -> rewrite to /a
 ```
 
-The `[locale]` page is **dynamically rendered** (`export const dynamic =
-'force-dynamic'`), like a real localized page that reads the request.
+`app/[slug]/page.tsx` is dynamically rendered and reads its route `params`.
 
-When you are on `/de` and click a link to `/en` (e.g. a locale switcher):
+When you navigate to `/a`:
 
-- **Hard navigation** to `/en` (typing the URL, reloading, `curl`) is
-  redirected to `/` ✅
-- **Client-side navigation** to `/en` (clicking `<Link href="/en">` or
-  `router.push('/en')`) is **not** applied to the URL on 16.3. The browser
-  commits the link's href (`/en`) and the 307 redirect to `/` is never
-  reflected in the address bar — even though the request is made and the
-  content of `/` is rendered. ❌
+- **Hard navigation** to `/a` (typing the URL, reloading, `curl`) is redirected
+  to `/` ✅
+- **Client-side navigation** to `/a` (clicking `<Link href="/a">` or
+  `router.push('/a')`) is **not** applied to the URL on 16.3. The browser
+  commits the link's href (`/a`); the 307 redirect to `/` is never reflected in
+  the address bar — even though the request is made and the redirected content
+  is rendered. ❌
 
-So after the click you end up with the `/` content showing under the wrong
-`/en` URL. On Next.js 16.2 the URL correctly becomes `/`.
+So after the click you see the redirected content under the wrong `/a` URL.
 
-### Required ingredient
+### Required ingredients
 
-The destination must be **dynamically rendered**. If the `[locale]` page is
-statically prerendered (remove `export const dynamic = 'force-dynamic'` and add
-`generateStaticParams`), the client resolves the redirect correctly and the bug
-disappears.
+All three are needed to trigger the bug:
+
+1. A **client-side** navigation (a plain hard navigation redirects correctly).
+2. The redirect **target is rewritten** (a plain redirect to a normal route is
+   followed correctly).
+3. The rewritten page is **dynamically rendered and reads route `params`** (a
+   statically prerendered, or non-param, target is resolved correctly).
+
+This lines up with the dynamic-route shell changes in Next.js 16.3
+("Instant Navigations") and the known issue around accessing `params` in a
+route shell.
 
 ## Steps to reproduce
 
@@ -46,15 +56,15 @@ npm run build
 npm start
 ```
 
-1. Open http://localhost:3000/de
-2. Click **"Switch to en"**
-3. Expected: the URL becomes `/` (showing the English page).
-4. Actual (16.3 preview): the URL stays `/en`.
+1. Open http://localhost:3000/two
+2. Click **"Go to /a"**
+3. Expected: the URL becomes `/`.
+4. Actual (16.3 preview): the URL stays `/a`.
 
 A hard request still redirects correctly:
 
 ```sh
-curl -so /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:3000/en
+curl -so /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:3000/a
 # 307 -> http://localhost:3000/
 ```
 
@@ -66,13 +76,16 @@ npx playwright install chromium
 npm test
 ```
 
-`tests/repro.spec.ts` contains:
+`tests/repro.spec.ts`:
 
-- `hard navigation to /en redirects to /` — passes
-- `client-side navigation from /de to /en should redirect to /` — **fails on 16.3**
+- `hard navigation to /a redirects to /` — passes
+- `client-side navigation to /a should redirect to /` — **fails on 16.3**
+
+To verify it works on the previous release, `npm install next@16.2.9` and run
+the tests again — both pass.
 
 ## Environment
 
 - `next@16.3.0-preview.5`
 - `react@19.2.3`, `react-dom@19.2.3`
-- App Router, dynamic `[locale]` segment
+- App Router, dynamic `[slug]` segment
